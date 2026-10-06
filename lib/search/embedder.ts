@@ -4,7 +4,10 @@ import { EMBED_MODEL, embedText, type EmbedItem, type EmbedResponse } from './pr
 import { documentsFor, normalize, type Indexed } from './rank'
 
 export type EmbedStatus =
-  { state: 'idle' } | { state: 'loading'; percent: number } | { state: 'ready' } | { state: 'error'; message: string }
+  | { state: 'idle' }
+  | { state: 'loading'; loadedMb: number; totalMb: number }
+  | { state: 'ready' }
+  | { state: 'error'; message: string }
 
 const cache = createStore('anamnesis-embeddings', 'vectors')
 
@@ -28,8 +31,12 @@ export const createEmbedder = (onStatus: (status: EmbedStatus) => void) => {
     if ('progress' in data) {
       progress.set(data.progress.file, data.progress)
       const all = [...progress.values()]
-      const percent = (100 * all.reduce((s, p) => s + p.loaded, 0)) / all.reduce((s, p) => s + p.total, 0)
-      return onStatus({ state: 'loading', percent: Math.round(percent) })
+      const mb = (bytes: number) => Math.round(bytes / 1e6)
+      return onStatus({
+        state: 'loading',
+        loadedMb: mb(all.reduce((sum, p) => sum + p.loaded, 0)),
+        totalMb: mb(all.reduce((sum, p) => sum + p.total, 0)),
+      })
     }
     if ('ready' in data) return onStatus({ state: 'ready' })
     const request = pending.get(data.id)

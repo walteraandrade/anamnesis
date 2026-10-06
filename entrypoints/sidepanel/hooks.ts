@@ -7,7 +7,7 @@ import type { FieldTarget, ToContent, ToPanel } from '@/lib/messages'
 import { createEmbedder, type EmbedStatus } from '@/lib/search/embedder'
 import { rank, type Indexed, type Match } from '@/lib/search/rank'
 import { folderSource, loadFolder, pickFolder, unlockFolder, type FolderState } from '@/lib/stories/fs-source'
-import type { Lang } from '@/lib/stories/types'
+import type { Entry, Lang } from '@/lib/stories/types'
 
 export const useFolder = () => {
   const [folder, setFolder] = useState<FolderState | null>(null)
@@ -44,6 +44,7 @@ export const useEmbedder = () => {
 }
 
 export const useIndex = (folder: FolderState | null, embedder: ReturnType<typeof createEmbedder>) => {
+  const [stories, setStories] = useState<Entry[]>([])
   const [entries, setEntries] = useState<Indexed[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -55,7 +56,9 @@ export const useIndex = (folder: FolderState | null, embedder: ReturnType<typeof
     const run = ++generation.current
     setLoading(true)
     try {
-      const indexed = await embedder.index(await source.list())
+      const listed = await source.list()
+      if (run === generation.current) setStories(listed)
+      const indexed = await embedder.index(listed)
       if (run === generation.current) {
         setEntries(indexed)
         setError(null)
@@ -77,7 +80,7 @@ export const useIndex = (folder: FolderState | null, embedder: ReturnType<typeof
     return () => document.removeEventListener('visibilitychange', onVisible)
   }, [reload])
 
-  return { source, entries, loading, error, reload }
+  return { source, stories, entries, loading, error, reload }
 }
 
 export const useTarget = () => {

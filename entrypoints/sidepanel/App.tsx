@@ -5,11 +5,13 @@ import type { FieldTarget, ToContent } from '@/lib/messages'
 import type { EmbedStatus } from '@/lib/search/embedder'
 import type { Match } from '@/lib/search/rank'
 import type { FolderState } from '@/lib/stories/fs-source'
-import { detectLang, findPlaceholders } from '@/lib/stories/parse'
+import { detectLang } from '@/lib/stories/parse'
 import type { Entry, Lang } from '@/lib/stories/types'
+import Bank from './Bank'
+import { blanksNote, destinationLabel, KIND_LABEL, LANG_LABEL, overBy, preview } from './format'
 import { useEmbedder, useFolder, useIndex, useLlm, useMatches, useTarget, type LlmState } from './hooks'
 
-const LANG_LABEL: Record<Lang, string> = { en: 'EN', pt: 'PT' }
+type View = 'suggest' | 'bank'
 
 const pageLang = (target: FieldTarget | null): Lang => (target?.pageLang.toLowerCase().startsWith('pt') ? 'pt' : 'en')
 
@@ -20,13 +22,12 @@ const limitLabel = (limit: Limit) =>
       ? `limite: ${limit.words} palavras`
       : 'sem limite detectado'
 
-const preview = (text: string) => text.replace(/\s+/g, ' ').slice(0, 220)
-
 export default function App() {
   const { folder, pick, unlock, error: folderError } = useFolder()
   const { embedder, status: embedStatus } = useEmbedder()
-  const { source, entries, loading, error: indexError, reload } = useIndex(folder, embedder)
+  const { source, stories, entries, loading, error: indexError, reload } = useIndex(folder, embedder)
   const target = useTarget()
+  const [view, setView] = useState<View>('suggest')
   const [question, setQuestion] = useState('')
   const [editing, setEditing] = useState<Entry | null>(null)
   const [toast, setToast] = useState<string | null>(null)
@@ -43,6 +44,7 @@ export default function App() {
 
   const lang = useMemo(() => detectLang(question, pageLang(target)), [question, target])
   const matches = useMatches(question, entries, lang, embedder)
+  const limit = target?.limit ?? {}
 
   const insert = async (text: string) => {
     if (!target) return setToast('Clique numa caixa de texto da vaga primeiro.')
@@ -63,60 +65,88 @@ export default function App() {
     <main>
       <header>
         <h1>anamnesis</h1>
-        <FolderPill folder={folder} count={entries.length} loading={loading} onReload={reload} />
+        {folder?.status === 'ready' && (
+          <button className="icon" onClick={reload} title="Ler a pasta de novo" aria-label="Ler a pasta de novo">
+            ↻
+          </button>
+        )}
       </header>
+      <FolderStatus folder={folder} count={stories.length} loading={loading} />
 
       <FolderGate folder={folder} onPick={pick} onUnlock={unlock} />
       {(folderError || indexError) && <p className="error">{folderError ?? indexError}</p>}
       <EmbedLine status={embedStatus} />
 
-      {source && (
-        <>
-          <section>
-            <label className="eyebrow" htmlFor="question">
-              Pergunta
-            </label>
-            <textarea
-              id="question"
-              rows={3}
-              value={question}
-              placeholder="Clique numa caixa de texto da vaga, ou cole a pergunta aqui."
-              onChange={(e) => setQuestion(e.target.value)}
-            />
-            {target && (
-              <p className="meta">
-                {target.site} · {limitLabel(target.limit)} · resposta em {LANG_LABEL[lang]}
-              </p>
-            )}
-          </section>
+      {source && editing && (
+        <Editor
+          key={editing.id}
+          source={editing}
+          question={question || editing.question}
+          lang={lang}
+          limit={limit}
+          destination={target?.question}
+          onClose={() => setEditing(null)}
+          onInsert={insert}
+          onCopy={copy}
+          onSave={async (answer) => {
+            const name = await source.save({ question: question || editing.question, answer, lang, from: editing.file })
+            setToast(`Salvo como ${name}`)
+            reload()
+          }}
+        />
+      )}
 
-          {editing ? (
-            <Editor
-              key={editing.id}
-              source={editing}
-              question={question}
-              lang={lang}
-              limit={target?.limit ?? {}}
-              destination={target?.question}
-              onClose={() => setEditing(null)}
-              onInsert={insert}
-              onCopy={copy}
-              onSave={async (answer) => {
-                const name = await source.save({ question, answer, lang, from: editing.file })
-                setToast(`Salvo como ${name}`)
-                reload()
-              }}
-            />
-          ) : (
+      {source && (
+        <div hidden={!!editing} className="views">
+          <nav className="tabs" role="tablist">
+            <button role="tab" aria-selected={view === 'suggest'} onClick={() => setView('suggest')}>
+              Sugestões
+            </button>
+            <button role="tab" aria-selected={view === 'bank'} onClick={() => setView('bank')}>
+              Todas as respostas <span className="count">{stories.length}</span>
+            </button>
+          </nav>
+
+          <div hidden={view !== 'suggest'} className="views">
+            <section>
+              <label className="eyebrow" htmlFor="question">
+                Pergunta
+              </label>
+              <textarea
+                id="question"
+                rows={3}
+                value={question}
+                placeholder="Clique numa caixa de texto da vaga, ou cole a pergunta aqui."
+                onChange={(e) => setQuestion(e.target.value)}
+              />
+              {target && (
+                <p className="meta">
+                  {target.site} · {limitLabel(target.limit)} · resposta em {LANG_LABEL[lang]}
+                </p>
+              )}
+            </section>
             <Matches
               matches={matches}
               hasQuestion={!!question.trim()}
-              limit={target?.limit ?? {}}
+              indexing={loading && !entries.length}
+              limit={limit}
               onInsert={insert}
               onEdit={setEditing}
             />
-          )}
-        </>
+          </div>
+
+          <div hidden={view !== 'bank'}>
+            <Bank
+              entries={stories}
+              active={view === 'bank' && !editing}
+              limit={limit}
+              destination={target?.question}
+              onInsert={insert}
+              onCopy={copy}
+              onEdit={setEditing}
+            />
+          </div>
+        </div>
       )}
 
       {toast && <div className="toast">{toast}</div>}
@@ -124,12 +154,17 @@ export default function App() {
   )
 }
 
-function FolderPill(props: { folder: FolderState | null; count: number; loading: boolean; onReload: () => void }) {
+function FolderStatus(props: { folder: FolderState | null; count: number; loading: boolean }) {
   if (props.folder?.status !== 'ready') return null
+  const status = props.count
+    ? `${props.count} respostas${props.loading ? ' · preparando a busca…' : ''}`
+    : props.loading
+      ? 'lendo…'
+      : 'nenhuma resposta'
   return (
-    <button className="pill" onClick={props.onReload} title="Ler a pasta de novo">
-      {props.folder.handle.name} · {props.loading ? 'lendo…' : `${props.count} respostas`} ↻
-    </button>
+    <p className="folder">
+      Pasta <strong>{props.folder.handle.name}</strong> · {status}
+    </p>
   )
 }
 
@@ -160,34 +195,32 @@ function FolderGate(props: { folder: FolderState | null; onPick: () => void; onU
 
 function EmbedLine({ status }: { status: EmbedStatus }) {
   if (status.state === 'loading')
-    return <p className="meta">Baixando o modelo de busca (só na primeira vez): {status.percent}%</p>
+    return (
+      <p className="meta">
+        Baixando o modelo de busca (só na primeira vez): {status.loadedMb} de {status.totalMb} MB
+      </p>
+    )
   if (status.state === 'error') return <p className="error">Busca falhou: {status.message}</p>
   return null
 }
 
 const WEAK_SCORE = 0.3
 
-const blanksNote = (text: string) => {
-  const blanks = findPlaceholders(text)
-  return blanks.length ? `Tem trecho para preencher: ${blanks.join(' ')}` : null
-}
-
-const overBy = (text: string, limit: Limit) =>
-  limit.chars && text.length > limit.chars
-    ? `${text.length} caracteres, passa do limite de ${limit.chars}`
-    : limit.words && countWords(text) > limit.words
-      ? `${countWords(text)} palavras, passa do limite de ${limit.words}`
-      : null
-
 function Matches(props: {
   matches: Match[]
   hasQuestion: boolean
+  indexing: boolean
   limit: Limit
   onInsert: (text: string) => void
   onEdit: (entry: Entry) => void
 }) {
   if (!props.hasQuestion) return null
-  if (!props.matches.length) return <p className="meta">Procurando…</p>
+  if (!props.matches.length)
+    return (
+      <p className="meta">
+        {props.indexing ? 'Preparando a busca… enquanto isso, a aba "Todas as respostas" já funciona.' : 'Procurando…'}
+      </p>
+    )
   return (
     <section className="matches" data-ready="true">
       <p className="eyebrow">Respostas parecidas</p>
@@ -202,7 +235,7 @@ function Matches(props: {
         return (
           <article key={entry.group} className={score < WEAK_SCORE ? 'card weak' : 'card'}>
             <div className="tags">
-              <span className={`tag ${entry.kind}`}>{entry.kind === 'fact' ? 'fato' : 'história'}</span>
+              <span className={`tag ${entry.kind}`}>{KIND_LABEL[entry.kind]}</span>
               {variants.map((v) => (
                 <span key={v.id} className={`tag ${v.id === entry.id ? 'on' : ''}`}>
                   {LANG_LABEL[v.lang]}
@@ -250,6 +283,7 @@ function Editor(props: {
   const activeLimit: Limit = chars ? { chars: Number(chars) } : limit.words ? { words: limit.words } : {}
   const invented = newNumbers(source.answer, draft)
   const tooLong = overLimit(draft, activeLimit)
+  const blanks = blanksNote(draft)
   const busy = ['checking', 'loading', 'generating'].includes(llm.state.state)
   const modes: AdaptMode[] = source.lang === lang ? ['fit', 'focus'] : ['fit', 'focus', 'translate']
 
@@ -283,11 +317,9 @@ function Editor(props: {
       {invented.length > 0 && (
         <p className="warn">Números que não estão na história original: {invented.join(', ')}. Confira.</p>
       )}
-      {blanksNote(draft) && <p className="warn">{blanksNote(draft)}</p>}
+      {blanks && <p className="warn">{blanks}</p>}
 
-      <p className="meta">
-        Vai para: {props.destination ? `“${props.destination.slice(0, 80)}”` : 'nenhuma caixa selecionada'}
-      </p>
+      <p className="meta">Vai para: {destinationLabel(props.destination)}</p>
       <div className="actions">
         <button className="primary" onClick={() => props.onInsert(draft)} disabled={busy}>
           Inserir
