@@ -184,6 +184,10 @@ button.ghost {
   background: var(--surface);
 }
 
+.card.weak {
+  opacity: 0.55;
+}
+
 .gate p {
   margin: 0;
 }

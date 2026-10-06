@@ -24,9 +24,25 @@ const byLabelledBy = (el: HTMLElement) =>
       .join(' '),
   )
 
+const withoutControls = (container: Element) => {
+  const copy = container.cloneNode(true) as Element
+  copy.querySelectorAll(CONTROLS).forEach((c) => c.remove())
+  return textOf(copy)
+}
+
+const textBefore = (container: Element, el: Element) => {
+  const range = container.ownerDocument.createRange()
+  range.setStart(container, 0)
+  range.setEndBefore(el)
+  return clean(range.toString())
+}
+
+const labelText = (label: Element, el: HTMLElement) =>
+  label.contains(el) ? textBefore(label, el) || withoutControls(label) : textOf(label)
+
 const byLabelFor = (el: HTMLElement) => {
   const first = 'labels' in el ? (el as HTMLInputElement).labels?.[0] : undefined
-  const fromLabels = first ? textOf(first) : ''
+  const fromLabels = first ? labelText(first, el) : ''
   if (fromLabels) return fromLabels
   const forId = el.id ? el.ownerDocument.querySelector(`label[for="${escapeId(el.id)}"]`) : null
   return forId ? textOf(forId) : ''
@@ -34,10 +50,7 @@ const byLabelFor = (el: HTMLElement) => {
 
 const byWrappingLabel = (el: HTMLElement) => {
   const label = el.closest('label')
-  if (!label) return ''
-  const copy = label.cloneNode(true) as HTMLElement
-  copy.querySelectorAll(CONTROLS).forEach((c) => c.remove())
-  return textOf(copy)
+  return label ? labelText(label, el) : ''
 }
 
 const byFieldset = (el: HTMLElement) => {

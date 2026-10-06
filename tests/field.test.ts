@@ -34,6 +34,18 @@ describe('questionFor', () => {
     expect(questionFor(el)).toBe('Portfolio URL')
   })
 
+  it('ignores autocomplete text after the control inside a wrapping label (Lever)', () => {
+    const el = mount(`
+      <li class="application-question"><label>
+        <div class="application-label">Current location<span class="required">✱</span></div>
+        <div class="application-field">
+          <input name="location" data-target>
+          <div class="dropdown-results"><div>No location found. Try entering a different location</div><div>Loading</div></div>
+        </div>
+      </label></li>`)
+    expect(questionFor(el)).toBe('Current location')
+  })
+
   it('reads text from a sibling of an ancestor (Lever)', () => {
     const el = mount(`
       <li class="application-question">

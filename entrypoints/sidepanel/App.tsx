@@ -165,6 +165,8 @@ function EmbedLine({ status }: { status: EmbedStatus }) {
   return null
 }
 
+const WEAK_SCORE = 0.3
+
 const blanksNote = (text: string) => {
   const blanks = findPlaceholders(text)
   return blanks.length ? `Tem trecho para preencher: ${blanks.join(' ')}` : null
@@ -189,11 +191,16 @@ function Matches(props: {
   return (
     <section className="matches" data-ready="true">
       <p className="eyebrow">Respostas parecidas</p>
+      {(props.matches[0]?.score ?? 0) < WEAK_SCORE && (
+        <p className="meta">
+          Nada muito parecido no banco. Talvez valha escrever uma resposta nova para esta pergunta.
+        </p>
+      )}
       {props.matches.map(({ entry, score, variants }) => {
         const over = overBy(entry.answer, props.limit)
         const blanks = blanksNote(entry.answer)
         return (
-          <article key={entry.group} className="card">
+          <article key={entry.group} className={score < WEAK_SCORE ? 'card weak' : 'card'}>
             <div className="tags">
               <span className={`tag ${entry.kind}`}>{entry.kind === 'fact' ? 'fato' : 'história'}</span>
               {variants.map((v) => (
